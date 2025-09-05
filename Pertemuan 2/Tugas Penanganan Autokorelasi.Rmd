@@ -1,0 +1,450 @@
+---
+title: "Tugas Penanganan Autokorelasi"
+author: "Fathoni Sabri"
+date: "2025-09-04"
+output: html_document
+---
+
+# Instalasi Package
+
+```{r}
+library(dplyr)
+library(TTR)
+library(forecast)
+library(lmtest)
+library(orcutt)
+library(HoRM)
+```
+
+# Data
+Data yang digunakan adalah Indeks Pembangunan Manusia di Provinsi Sumatera Barat pada Tahun 2010-2024
+```{r}
+# Membuat vektor untuk tahun
+tahun <- c(2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024)
+
+# Membuat vektor IPM
+IPM <- c(67.25, 67.81, 68.36, 68.91, 69.36, 69.98, 70.73, 71.24, 71.73, 72.39, 72.38, 72.65, 73.26, 73.75, 74.49)
+
+# Menggabungkan kedua vektor untuk menjadi Matriks
+data <- cbind(tahun, IPM)
+
+# Mengubah format data menjadi data frame
+data <- as.data.frame(data)
+
+data
+```
+
+# Eksplorasi Data
+Eksplorasi data dilakukan untuk melihat sebaran data dan menentukan langkah lanjutan yang tepat.
+```{r}
+data.ts<-ts(data$IPM)
+data.ts
+```
+
+```{r}
+#Membuat plot time series
+ts.plot(data.ts, xlab="Periode Waktu(Tahun)", ylab="IPM", main= "Plot Deret Waktu IPM")
+points(data.ts)
+```
+
+Berdasarkan plot di atas, dapat dilihat bahwa data memiliki tren. sehingga, selanjutnya kita akan melakukan peramalan dan pemulusan dengan metode DMA dan DES.
+## DMA
+```{r}
+# Metode DMA (Double Moving Average)
+dt.sma <- SMA(data.ts, n = 3)   # setiap nilai = rata-rata 3 observasi terakhir
+dma <- SMA(dt.sma, n = 3)
+At <- 2 * dt.sma - dma          # At = 2*SMA - DMA
+Bt <- 2/(3 - 1) * (dt.sma - dma) # Bt = (2/(n-1)) * (SMA - DMA), dengan n=3
+# Hitung fitted values (ramalan historis)
+dt.dma <- At + Bt               # Yhat_t = At + Bt
+dt.ramal <- c(NA, dt.dma)
+t <- 1:5
+f <- c()
+# Hitung ramalan ke depan (out-of-sample forecast)
+# Rumus: F_{t+m} = A_t + B_t * m
+for (i in t) {
+  f[i] <- At[length(At)] + Bt[length(Bt)] * i
+}
+
+```
+
+```{r}
+dt.gab <- cbind(
+  aktual      = c(data.ts,  rep(NA, 5)),   # data asli (time series) + NA agar panjang sama
+  pemulusan1  = c(dt.sma,   rep(NA, 5)),   # hasil SMA (pemulusan pertama) + NA
+  pemulusan2  = c(dt.dma,   rep(NA, 5)),   # hasil DMA (pemulusan kedua) + NA
+  At          = c(At,       rep(NA, 5)),   # komponen level + NA
+  Bt          = c(Bt,       rep(NA, 5)),   # komponen trend + NA
+  ramalan     = c(dt.ramal, f[-1])         # fitted values + ramalan ke depan
+)
+
+dt.gab
+```
+
+
+
+```{r}
+# Plot deret waktu ari data aktual
+ts.plot(dt.gab[,1],                      # kolom 1 = data aktual
+        xlab = "Periode Waktu",            # label sumbu x
+        ylab = "IPM",                    # label sumbu y
+        main = "DMA Data IPM N=3",       # judul grafik
+        ylim = c(66, 78))                # batas sumbu y (dari 62 sampai 75)
+
+# Tambahkan titik-titik (points) untuk data aktual
+points(dt.gab[,1])
+
+# Tambahkan titik-titik untuk data pemulusan 2 (kolom 3 = dt.dma)
+points(dt.gab[,3])
+
+# Tambahkan titik-titik untuk data ramalan (kolom 6)
+points(dt.gab[,6])
+
+# Tambahkan garis untuk data pemulusan (warna hijau, tebal garis = 2)
+lines(dt.gab[,3], col="green", lwd=2)
+
+# Tambahkan garis untuk data ramalan (warna merah, tebal garis = 2)
+lines(dt.gab[,6], col="red", lwd=2)
+
+# Tambahkan legenda di pojok kiri atas
+legend("topleft",
+       c("data aktual", "data pemulusan", "data peramalan"),  # keterangan
+       lty = 8,                                               # jenis garis
+       col = c("black", "green", "red"),                      # warna sesuai garis
+       cex = 0.8)                                             # ukuran teks
+
+```
+Selanjutnya lakukan perhitungan untuk mengetahui keakuratan dari metode DMA
+
+```{r}
+# 1. Hitung error (selisih data aktual dengan ramalan historis)
+error.dma <- data.ts - dt.ramal[1:length(data.ts)]
+
+# 2. Hitung Sum of Squared Errors (SSE)
+SSE.dma <- sum(error.dma[6:length(data.ts)]^2)  
+
+# 3. Hitung Mean Squared Error (MSE)
+MSE.dma <- mean(error.dma[6:length(data.ts)]^2)  
+
+# 4. Hitung Mean Absolute Percentage Error (MAPE)
+MAPE.dma <- mean(abs((error.dma[6:length(data.ts)] / data.ts[6:length(data.ts)]) * 100))  
+
+# 5. Gabungkan hasil ke dalam matriks ringkasan
+akurasi.dma <- matrix(c(SSE.dma, MSE.dma, MAPE.dma))
+
+# 6. Tambahkan nama baris dan kolom
+row.names(akurasi.dma) <- c("SSE", "MSE", "MAPE")
+colnames(akurasi.dma) <- c("Akurasi m = 3")
+
+# 7. Tampilkan hasil akurasi
+akurasi.dma
+```
+Didapati MAPE sebesar 0.337, artinya ramalan DMA dengan menggunakan m=3 meleset sekitar 0.337% dari nilai aslinya.
+## DES
+Selanjutnya kita akan mencoba menggunakan metode DES (Double Exponential Smoothing)
+```{r}
+# 1. Membagi data menjadi training dan testing
+training <- data[1:11, 2]   # ambil 11 observasi pertama (kolom ke-2 = variabel target)
+testing  <- data[12:15, 2]  # ambil observasi ke-12 dan ke-15 sebagai data uji
+
+# 2. Membuat objek time series
+training.ts <- ts(training)        # data latih dalam bentuk time series
+testing.ts  <- ts(testing, start=12) # data uji sebagai time series, dimulai dari periode ke-12
+```
+
+### Plot Data Asli
+```{r}
+# Eksplorasi data (visualisasi seluruh data asli)
+plot(data.ts, 
+     col = "red",                  # warna merah untuk garis data
+     main = "Plot semua data",     # judul grafik
+     xlab = "Periode",             # label sumbu x
+     ylab = "Nilai")               # label sumbu y
+points(data.ts)                    # tambahkan titik di setiap observasi
+```
+### Plot Data Training
+```{r}
+plot(training.ts, col="blue",main="Plot data training")
+points(training.ts)
+```
+Selanjutnya melakukan pemulusan dengan DES sekaligus mencari nilai lambda dan gamma optimum. Nilai lambda dan gamma optimum dapat dilihat pada smoothing parameters alpha untuk nilai lambda, dan beta untuk nilai gamma.
+```{r}
+des.opt<- HoltWinters(training.ts, gamma = FALSE)
+des.opt
+```
+```{r}
+# Membuat plot hasil pemodelan Holt-Winters
+# Garis hitam = data aktual (training), garis merah = hasil pemulusan model
+plot(des.opt)
+
+# Menambahkan legenda di pojok kiri atas
+# Hitam = data aktual, Merah = hasil peramalan (fit values)
+legend("topleft", c("Data Aktual", "Peramalan"), 
+       col = c("black", "red"), 
+       lty = c(1, 1))
+
+```
+```{r}
+# Membuat ramalan menggunakan model Holt-Winters hasil training
+# h = 5 → meramalkan 5 periode ke depan 
+rdesopt <- forecast(des.opt, h = 5)
+
+# Menampilkan hasil ramalan
+# Output biasanya berisi: nilai ramalan (Point Forecast),
+# serta interval prediksi (Lo 80/95 dan Hi 80/95)
+rdesopt
+```
+Selanjutnya, kita menghitung akurasi dari metode DES.
+```{r}
+# Mengambil nilai SSE (Sum of Squared Errors) dari model Holt-Winters pada data training
+ssedes.train <- des.opt$SSE
+
+# Menghitung MSE (Mean Squared Error) pada data training
+# Caranya: SSE dibagi jumlah data training
+msedes.train <- ssedes.train / length(training.ts)
+
+# Mengambil nilai residual (selisih antara data aktual dan hasil model)
+# Residual ini bisa dipakai untuk cek pola kesalahan model
+sisaandes <- rdesopt$residuals
+
+# Menampilkan beberapa nilai awal residual untuk dicek
+head(sisaandes)
+```
+dan Menghitung MAPE nya.
+```{r}
+# Rumus: rata-rata dari |(aktual - ramalan)/aktual| * 100
+# Indeks mulai dari 3 → menghindari error pada awal data yang kurang stabil
+mapedes.train <- sum(abs(sisaandes[3:length(training.ts)] / training.ts[3:length(training.ts)]) * 100) / length(training.ts)
+
+# Membuat matriks berisi nilai akurasi (SSE, MSE, MAPE)
+akurasides.opt <- matrix(c(ssedes.train, msedes.train, mapedes.train))
+
+# Memberi nama baris matriks sesuai metrik akurasi
+row.names(akurasides.opt) <- c("SSE", "MSE", "MAPE")
+
+# Memberi nama kolom matriks sebagai keterangan model yang digunakan
+colnames(akurasides.opt) <- c("Akurasi lamda dan gamma optimum")
+
+# Menampilkan matriks akurasi
+akurasides.opt
+```
+```{r}
+#Akurasi data testing
+selisihdesopt<- rdesopt$mean-testing.ts
+selisihdesopt
+```
+Menghitung SSE nya.
+```{r}
+# selisihdesopt = perbedaan antara data aktual (testing) dan hasil ramalan
+SSEtestingdesopt <- sum(selisihdesopt^2)
+
+# Menghitung MSE (Mean Squared Error) pada data testing
+# Caranya SSE dibagi jumlah data testing
+SSEtestingdesopt <- SSEtestingdesopt / length(testing.ts)
+
+# Menghitung MAPE (Mean Absolute Percentage Error) pada data testing
+# Rumus: rata-rata dari |(aktual - ramalan)/aktual| * 100
+MAPEtestingdesopt <- sum(abs(selisihdesopt / testing.ts) * 100) / length(testing.ts)
+
+# Membuat matriks berisi nilai akurasi (SSE, MSE, MAPE) untuk data testing
+akurasiDesTesting <- matrix(c(SSEtestingdesopt, SSEtestingdesopt, MAPEtestingdesopt))
+
+# Memberi nama baris matriks sesuai metrik akurasi
+row.names(akurasiDesTesting) <- c("SSE", "MSE", "MAPE")
+
+# Memberi nama kolom matriks sesuai model yang digunakan
+colnames(akurasiDesTesting) <- c("Akurasi lamda dan gamma optimum")
+
+# Menampilkan matriks akurasi pada data testing
+akurasiDesTesting
+```
+## Perbandingan metode DMA dan DES
+```{r}
+# di kiri adalah nilai untuk DMA dan di kanan adalah nilai untuk DES
+cbind(akurasi.dma, akurasides.opt)
+```
+
+Berdasarkan nilai akurasi yang dihitung, terlihat bahwa nilai SSE, MSE, dan MAPE metode DES lebih kecil dibanding DMA. Maka dari itu, metode yang paling baik untuk melakukan peramalan pada data ini adalah metode DES.
+## Nilai Korelasi
+```{r}
+cor(tahun,IPM)
+```
+Berdasarkan nilai korelasinya, periode waktu dan IPM memiliki hubungan positif yang sangat kuat
+
+# Regresi
+```{r}
+#Pembuatan Model Regresi
+#model regresi
+model<- lm(IPM~tahun, data = data)
+summary(model)
+```
+
+$$ \hat{y} = -942 + 0.5024 \times \text{tahun} $$
+Berdasarkan ringkasan model dapat diketahui bahwa hasil uji F memiliki 
+$p\text{-value} < \alpha \ (5\%)$.
+Artinya, minimal terdapat satu variabel yang berpengaruh nyata terhadap model.
+
+Selanjutnya dapat dilihat juga nilai
+
+$$ R^2 = 0.9904 $$
+Artinya, sebesar 99.04% keragaman nilai IPM dapat dijelaskan oleh peubah tahun. Hasil ini menunjukkan hasil yang bagus, seolah mendapatkan hasil terbaik. Namun, kita perlu melakukan uji terhadap sisaannya seperti berikut ini.
+```{r}
+#sisaan dan fitted value
+sisaan<- residuals(model)
+fitValue<- predict(model)
+```
+
+
+```{r}
+#Diagnostik dengan eksploratif
+par(mfrow = c(2,2))
+qqnorm(sisaan)
+qqline(sisaan, col = "steelblue", lwd = 2)
+plot(fitValue, sisaan, col = "steelblue", pch = 20, xlab = "Sisaan", ylab = "Fitted Values", main = "Sisaan vs Fitted Values")
+abline(a = 0, b = 0, lwd = 2)
+hist(sisaan, col = "steelblue")
+plot(seq(1,15,1), sisaan, col = "steelblue", pch = 20, xlab = "Sisaan", ylab = "Order", main = "Sisaan vs Order")
+lines(seq(1,15,1), sisaan, col = "red")
+abline(a = 0, b = 0, lwd = 2)
+```
+Dua plot di samping kiri digunakan untuk melihat apakah sisaan menyebar normal. Normal Q-Q Plot di atas menunjukkan bahwa sisaan cenderung menyebar normal, tetapi histogram dari sisaan tidak menunjukkan demikian. Selanjutnya, dua plot di samping kanan digunakan untuk melihat autokorelasi. Plot Sisaan vs Fitted Value dan Plot Sisaan vs Order menunjukkan adanya pola pada sisaan. Untuk lebih lanjut akan digunakan uji formal melihat normalitas sisaan dan plot ACF dan PACF untuk melihat apakah ada autokorelasi atau tidak.
+```{r}
+#Melihat Sisaan Menyebar Normal/Tidak
+#H0: sisaan mengikuti sebaran normal
+#H1: sisaan tidak mengikuti sebaran normal
+shapiro.test(sisaan)
+```
+```{r}
+ks.test(sisaan, "pnorm", mean=mean(sisaan), sd=sd(sisaan))
+```
+Berdasarkan uji formal Saphiro-Wilk dan Kolmogorov-Smirnov didapatkan nilai p-value > α (5%). Artinya, cukup bukti untuk menyatakan sisaan berdistribusi normal.
+
+Selanjutnya, menggunakan ACF  dan PACF untuk melihat ada atau tidaknya autokorelasi
+```{r}
+par(mfrow = c(1,2))
+acf(sisaan)
+pacf(sisaan)
+```
+Dari grafik, dapat dilihat ada autokorelasi yang cukup signifikan pada Lag 1 ACF dan PACF. Untuk memastikan keberadaan autokorelasi. Akan dilakukan uji Durbin-Watson.
+
+# Durbin Watson
+```{r}
+#Deteksi autokorelasi dengan uji-Durbin Watson
+#H0: tidak ada autokorelasi
+#H1: ada autokorelasi
+dwtest(model)
+```
+Nilai p-value < 0.05 dapat disimpulkan bahwa tolak H0, cukup bukti mengatakan adanya autokorelasi. Oleh karena itu, diperlukan penangan autokorelasi. Pada data ini kita akan menggunakan dua metode, yaitu Cochrane-Orcutt dan Hildret-Lu.
+
+# Penanganan
+
+## Metode Cochrane-Orcutt
+Penanganan metode Cochrane-Orcutt dapat dilakukan dengan bantuan packages Orcutt pada aplikasi R
+```{r}
+modelCO<-cochrane.orcutt(model)
+modelCO
+```
+Hasilnya adalah sebagai berikut
+$$ \hat{y} = -912.5534 + 0.4876 \times \text{tahun} $$
+Nilai p-value < 0.05, artinya cukup bukti untuk menyatakan bahwa sisaan terdapat autokorelasi pada taraf nyata 5%.
+Untuk nilai ρ̂ optimum yang digunakan adalah 0.558556 . Nilai tersebut dapat diketahui dengan syntax berikut.
+
+
+```{r}
+#Rho optimum
+rho<- modelCO$rho
+rho
+```
+```{r}
+#Transformasi Manual
+IPM.trans<- IPM[-1]-IPM[-15]*rho
+tahun.trans<- tahun[-1]-tahun[-15]*rho
+modelCOmanual<- lm(IPM.trans~tahun.trans)
+summary(modelCOmanual)
+```
+Hasil model transformasi bukan merupakan model sesungguhnya. Koefisien regresi masih perlu dicari kembali mengikuti β∗0=β0+ρ̂ β0 dan β∗1=β1 .
+```{r}
+b0bintang <- modelCOmanual$coefficients[-2]
+b0 <- b0bintang/(1-rho)
+b1 <- modelCOmanual$coefficients[-1]
+b0
+b1
+```
+Hasil perhitungan menghasilkan angka yang hampir sama dengan menggunakan package.
+
+## Metode Hildreth-Lu 
+Metode ini akan mencari nilai SSE terkecil dan dapat dicari secara manual maupun menggunakan packages. Jika menggunakan packages, gunakan library packages HoRM.
+```{r}
+#Penanganan Autokorelasi Hildreth lu
+# Hildreth-Lu
+hildreth.lu.func<- function(r, model){
+  x <- model.matrix(model)[,-1]
+  y <- model.response(model.frame(model))
+  n <- length(y)
+  t <- 2:n
+  y <- y[t]-r*y[t-1]
+  x <- x[t]-r*x[t-1]
+  
+  return(lm(y~x))
+}
+
+#Pencarian rho yang meminimumkan SSE
+r <- c(seq(0.1,0.9, by= 0.1))
+tab <- data.frame("rho" = r, "SSE" = sapply(r, function(i){deviance(hildreth.lu.func(i, model))}))
+round(tab, 4)
+```
+Setelah nilai SSE diperolah menggunakan ρ dari 0.1 hingga 0.9. Selanjutnya kita mencari ρ dengan nilai SSE minimum, yaitu ρ=0.6. Namun, hasilnya masih kurang teliti. Untuk itu kita akan mencari nilai ρ yang minimum.
+```{r}
+#Rho optimal di sekitar 0.4
+rOpt <- seq(0.5,0.7, by= 0.0001)
+tabOpt <- data.frame("rho" = rOpt, "SSE" = sapply(rOpt, function(i){deviance(hildreth.lu.func(i, model))}))
+head(tabOpt[order(tabOpt$SSE),])
+```
+Nilai SSE minimum adalah 0.3826005 dengan ρ=0.6115, selanjutnya kita akan membuat plotnya.
+```{r}
+#Grafik SSE optimum
+par(mfrow = c(1,1))
+plot(tab$SSE ~ tab$rho , type = "l", xlab = "Rho", ylab = "SSE")
+abline(v = tabOpt[tabOpt$SSE==min(tabOpt$SSE),"rho"], lty = 2, col="red",lwd=2)
+text(x=0.6115	, y=0.3826005, labels = "rho=0.3826005	", cex = 0.8)
+```
+Selanjutnya, model yang sudah didapatkan dievaluasi nilai ρ ke dalam fungsi hildreth.lu.func, serta dilanjutkan dengan menguji autokorelasi dengan uji Durbin-Watson. Setelah dilakukan pengecekan, persamaan tersebut kemudian ditransformasikan kembali dan penjadi persamaan yang sesungguhnya.
+```{r}
+#Model terbaik
+modelHL <- hildreth.lu.func(0.6115, model)
+summary(modelHL)
+```
+
+```{r}
+#Transformasi Balik
+cat("y = ", coef(modelHL)[1]/(1-0.559), "+", coef(modelHL)[2],"x", sep = "")
+```
+$$ \hat{y} = -803.9143 + 0.4876\times \text{tahun} $$
+```{r}
+#Deteksi autokorelasi
+dwtest(modelHL)
+```
+Hasil uji Durbin-Watson menunjukkan bawah nilai p-value sebesar 0.1367 , di mana p-value > α =5%. Artinya tak tolak H0 atau belum cukup bukti untuk menyatakan bahwa ada autokorelasi dalam data nilai IPM dengan metode Hildreth-Lu pada taraf nyata 5%.
+
+## Membandingkan Ketiga Metode
+Selanjutnya kita akan membandingkan ketiga metode yang telah digunakan (metode awal, metode Cohcran-Orcutt, dan Hildreth-Lu)
+```{r}
+#Perbandingan
+sseModelawal <- anova(model)$`Sum Sq`[-1]
+sseModelCO <- anova(modelCOmanual)$`Sum Sq`[-1]
+sseModelHL <- anova(modelHL)$`Sum Sq`[-1]
+mseModelawal <- sseModelawal/length(IPM)
+mseModelCO <- sseModelCO/length(IPM)
+mseModelHL <- sseModelHL/length(IPM)
+akurasi <- matrix(c(sseModelawal,sseModelCO,sseModelHL,
+                    mseModelawal,mseModelCO,mseModelHL),nrow=2,ncol=3,byrow = T)
+colnames(akurasi) <- c("Model Awal", "Model Cochrane-Orcutt", "Model Hildreth-Lu")
+row.names(akurasi) <- c("SSE","MSE")
+akurasi
+```
+Berdasarkan hasil tersebut dapat diketahui bahwa penanganan autokorelasi dengan metode Cochrane-Orcutt dan Hildreth-Lu menghasilkan SSE dan MSE yang sama, yaitu 0.3826005 dan 0.0255067. Nilai ini lebih baik dibandingkan model awal sebelum penanganan autokorelasi, yang memiliki SSE 0.68373762 dan MSE 0.04558251.
+
+# Kesimpulan
+Dari hasil analisis diketahui bahwa data IPM masih mengandung autokorelasi. Hal ini wajar, karena indikator penyusun IPM, khususnya yang berkaitan erat dengan aspek ekonomi, cenderung saling memengaruhi dari waktu ke waktu. Akibat adanya autokorelasi, model regresi yang dibangun menjadi kurang optimal, karena galat atau error model ikut membesar.
+
+Pendeteksian autokorelasi dapat dilakukan dengan melihat pola residual melalui grafik (residual plot, ACF, dan PACF), maupun dengan uji formal seperti Durbin-Watson. Upaya perbaikan menggunakan metode Cochrane-Orcutt dan Hildreth-Lu berhasil menurunkan nilai SSE dan MSE dibandingkan model awal. Hasil uji Durbin–Watson pada model yang diperbaiki dengan metode Cochrane-Orcutt dan Hildreth-Lu menunjukkan bahwa autokorelasi juga sudah berhasil diatasi. Dengan demikian, asumsi bebas autokorelasi pada residual terpenuhi. Hal ini menjadikan model yang diperoleh dapat diandalkan untuk interpretasi dan prediksi, karena error tidak lagi saling berkorelasi. Selain itu, penurunan nilai SSE dan MSE dibandingkan model awal memperkuat bukti bahwa kedua metode perbaikan ini mampu meningkatkan kualitas model regresi.
