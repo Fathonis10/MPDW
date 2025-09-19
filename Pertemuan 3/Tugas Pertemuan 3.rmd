@@ -1,0 +1,356 @@
+---
+title: "Tugas Pertemuan 3"
+author: "Fathoni Sabri"
+date: "2025-09-18"
+output: html_document
+---
+
+
+# Library
+
+```{r}
+library(dLagM)
+library(dynlm)
+library(MLmetrics)
+library(lmtest)
+library(car)
+library(readr)
+library(dplyr)
+```
+
+# Import Data
+
+```{r}
+dataset <- read.csv("C:/Users/Fathoni Sabri/OneDrive/Documents/Semester 5/MPDW/Repository/Pertemuan 3/NewDelhi_Air_quality.csv")
+dataset
+```
+
+```{r}
+str(dataset)
+```
+
+```{r}
+data <- dataset %>% select(-c('X', 'datetime', 'no2', 'o3', 'pm10', 'pm25', 'CO', 'timestamp_local', 'timestamp_utc', 'ts'))
+head(data)
+```
+Menetapkan AQI sebagai peubah terikat dan SO2 sebagai peubah penjelas.
+
+# Pembagian Data
+
+```{r}
+train<-data[1:64,]
+test<-data[65:72,]
+```
+
+Pembagian data menggunakan rasio 8:1, dimana train berjumlah 64 amatan dan test berjumlah 8 amatan.
+
+```{r}
+train.ts<-ts(train)
+test.ts<-ts(test)
+data.ts<-ts(data)
+```
+
+# Model Koyck
+## Pemodelan
+
+```{r}
+model.koyck <- koyckDlm(x = train$so2, y = train$AQI)
+summary(model.koyck)
+```
+
+```{r}
+AIC(model.koyck)
+BIC(model.koyck)
+```
+
+Dari hasil tersebut, didapat bahwa peubah $AQI_{-1}$ memiliki nilai $p-value<0.05$. Hal ini menunjukkan bahwa peubah $AQI_{-1}$ berpengaruh signifikan terhadap $AQI$. Model ini juga memiliki nilai adjusted R-sq sebesar 0.8997. Adapun model keseluruhannya adalah sebagai berikut.
+
+$$
+\hat{AQI_t}=3.13363-3.82147SO2_t+0.92777AQI_{t-1}
+$$
+
+## Peramalan dan Akurasi
+
+Berikut adalah hasil peramalan $AQI$ untuk 8 periode kedepan menggunakan model koyck.
+
+```{r}
+fore.koyck <- forecast(model = model.koyck, x=test$so2, h=8)
+fore.koyck
+```
+
+```{r}
+mape.koyck <- MAPE(fore.koyck$forecasts, test$AQI)
+mape.koyck 
+```
+
+```{r}
+GoF(model.koyck)
+```
+
+Model tersebut memiliki nilai MAPE di bawah 10%. Artinya model sangat baik jika dilihat dari nilai MAPE nya.
+
+# Regression with Distributed Lag
+## Pemodelan (Lag=2)
+
+```{r}
+model.dlm <- dlm(x = train$so2,y = train$AQI , q = 1)
+summary(model.dlm)
+```
+
+Dari hasil tersebut didapat bahwa $p-value$ dari intercept dan $SO2_{t-1}<0.05$. Hal ini menunjukkan bahwa intercept dan $SO2_{t-1}$ berpengaruh signifikan terhadap $AQI$. Tetapi, nilai adjusted R-sq nya lebih kecil dibandingkan dengan model koyck yaitu hanya sebesar 0.4036. Adapun model keseluruhan yang terbentuk adalah sebagai berikut.
+
+$$
+\hat{AQI_t}=43.8011-47.7219SO2_t-0.5615SO2_{t-1}
+$$
+Berikut merupakan hasil peramalan $AQI$ untuk 8 periode kedepan.
+
+```{r}
+fore.dlm <- forecast(model = model.dlm, x=test$so2, h=8)
+fore.dlm
+```
+
+```{r}
+mape.dlm <- MAPE(fore.dlm$forecasts, test$AQI)
+mape.dlm
+```
+
+```{r}
+GoF(model.dlm)
+```
+
+Model tersebut memiliki nilai MAPE di bawah 10%. Artinya model sangat baik berdasarkan nilai MAPE nya.
+
+## *Lag* Optimum
+
+```{r}
+finiteDLMauto(formula = AQI ~ so2,
+              data = data.frame(train), q.min = 1, q.max = 40,
+              model.type = "dlm", error.type = "AIC", trace = TRUE)
+```
+
+Berdasarkan output tersebut, lag optimum didapatkan ketika lag = 30. Selanjutnya dilakukan pemodelan untuk lag = 30.
+
+```{r}
+model.dlm2 <- dlm(x = train$so2,y = train$AQI , q =30)
+summary(model.dlm2)
+```
+```{r}
+summary(model.dlm2)
+```
+
+Dari hasil tersebut terdapat beberapa peubah yang berpengaruh signifikan terhadap taraf nyata 5% yaitu intersept, $SO2_{t}$ , $SO2_{t-1}$ , $SO2_{t-2}$ , $SO2_{t-3}$ , $SO2_{t-4}$ , $SO2_{t-5}$ , $SO2_{t-6}$ , $SO2_{t-7}$ , $SO2_{t-8}$ , $SO2_{t-9}$ , $SO2_{t-11}$ , $SO2_{t-12}$ , $SO2_{t-15}$ , $SO2_{t-17}$ , $SO2_{t-18}$ , $SO2_{t-19}$ , $SO2_{t-22}$ , $SO2_{t-26}$ , $SO2_{t-28}$ , $SO2_{t-29}$. Model ini juga memiliki nilai R-sq sebesar 0.9994. Adapun keseluruhan model yang terbentuk adalah.
+
+$$
+\hat{AQI_t}=31.388 \times 10^{3}-147.296SO2_t+...-46.908SO2_{t-29}
+$$
+
+Adapun hasil peramalan 8 periode kedepan menggunakan model tersebut adalah sebagai berikut.
+
+```{r}
+fore.dlm2 <- forecast(model = model.dlm2, x=test$so2, h=8)
+fore.dlm2
+```
+
+```{r}
+mape.dlm2<- MAPE(fore.dlm2$forecasts, test$AQI)
+mape.dlm2
+```
+
+```{r}
+GoF(model.dlm2)
+```
+
+Model tersebut merupakan model yang sangat baik dengan nilai MAPE yang kurang dari 10%.
+
+# Model Autoregressive
+## Pemodelan
+
+```{r}
+model.ardl <- ardlDlm(x = train$so2, y = train$AQI, p = 1 , q = 1)
+summary(model.ardl)
+```
+
+```{r}
+AIC(model.ardl)
+BIC(model.ardl)
+```
+
+```{r}
+model.ardl <- ardlDlm(formula = AQI ~ so2, 
+                         data = train,p = 1 , q = 1)
+summary(model.ardl)
+```
+
+```{r}
+AIC(model.ardl)
+BIC(model.ardl)
+```
+
+Hasil di atas menunjukkan bahwa seluruh peubah yaitu $SO2_t$ , $SO2_{t-1}$ , dan $AQI_{t-1}$ hasil uji t menunjukkan nilai-p pada peubah $<0.05$. Hal ini menunjukkan bahwa peubah $SO2_t$ , $SO2_{t-1}$ , dan $AQI_{t-1}$ berpengaruh signifikan terhadap $AQI_t$. Model ini juga memiliki nilai adj R-sq sebesar 0.9197. Model keseluruhannya adalah sebagai berikut:
+
+$$
+\hat{AQI_t}=5.13288-30.41775SO2_t+23.65069SO2_{t-1}+0.89292AQI_{t-1}
+$$
+## Peramalan dan Akurasi
+
+```{r}
+fore.ardl <- forecast(model = model.ardl, x=test$so2, h=8)
+fore.ardl
+```
+
+Data di atas merupakan hasil peramalan untuk 8 periode ke depan menggunakan Model Autoregressive dengan $p=1$ dan $q=1$.
+
+```{r}
+mape.ardl <- MAPE(fore.ardl$forecasts, test$AQI)
+mape.ardl
+```
+
+```{r}
+GoF(model.ardl)
+```
+
+Berdasarkan nilai di atas, terlihat bahwa nilai MAPE dan sMAPE tidak jauh berbeda. Ini artinya model regresi dengan distribusi lag tersebut tidak overfitted maupun underfitted.
+
+## *Lag* Optimum
+
+```{r}
+model.ardl.opt <- ardlBoundOrders(data = data.frame(data), ic = "AIC", 
+                                  formula = AQI ~ so2 )
+model.ardl.opt
+```
+
+```{r}
+min_p=c()
+for(i in 1:15){
+  min_p[i]=min(model.ardl.opt$Stat.table[[i]])
+}
+q_opt=which(min_p==min(min_p, na.rm = TRUE))
+p_opt=which(model.ardl.opt$Stat.table[[q_opt]] == 
+              min(model.ardl.opt$Stat.table[[q_opt]], na.rm = TRUE))
+data.frame("q_optimum" = q_opt, "p_optimum" = p_opt, 
+           "AIC"=model.ardl.opt$min.Stat)
+```
+
+Dari tabel di atas, dapat terlihat bahwa nilai AIC terendah didapat ketika $p=5$ dan $q=14$, yaitu sebesar $107.6614$. Artinya, model autoregressive optimum didapat ketika $p=5$ dan $q=14$.
+
+Selanjutnya dapat dilakukan pemodelan dengan nilai $p$ dan $q$ optimum.
+
+# Pemodelan DLM & ARDL
+
+```{r}
+cons_lm1 <- dynlm(AQI ~ so2+L(so2),data = train.ts)
+
+cons_lm2 <- dynlm(AQI ~ so2+L(AQI),data = train.ts)
+
+cons_lm3 <- dynlm(AQI ~ so2+L(so2)+L(AQI),data = train.ts)
+
+cons_lm4 <- dynlm(AQI ~ so2+L(AQI)+L(so2,2),data = train.ts)
+```
+
+## Ringkasan Model
+
+Berikut adalah summary hasil estimasi dari masing-masing model:
+
+```{r}
+summary(cons_lm1)
+```
+
+```{r}
+summary(cons_lm2)
+```
+
+```{r}
+summary(cons_lm3)
+```
+
+```{r}
+summary(cons_lm4)
+```
+
+## SSE
+
+Selain ringkasan hasil, SSE juga dihitung dari masing-masing model yang ada.
+
+```{r}
+deviance(cons_lm1)
+deviance(cons_lm2)
+deviance(cons_lm3)
+deviance(cons_lm4)
+```
+Semakin kecil niali SSE, maka semakin baik model. Hal ini karena error yang didapat akan semakin kecil pula. dari model yang ada, yang memiliki error terkecil adalah model 3. Maka dari itu, dapat dikatakan model 3 lebih baik dari model lainnya.
+
+## Uji encomptest
+
+```{r}
+if(require("lmtest")) encomptest(cons_lm1, cons_lm2)
+```
+
+-   Model 1 : p-value $2.2 \times 10^{-16}$ (\< 0.05). Artinya, setiap penambahan lag dari AQI (`L(AQI)`) akan memberikan peningkatan signifikan.\
+    Oleh karena itu, Model 1 tidak cukup memadai tanpa tambahan variabel lag dari SO2.
+
+-   Model 2 : p-value = 0.0009937 (\< 0.05).\
+    Artinya, penambahan lag dari SO2 (`L(SO2)`) memberikan peningkatan signifikan. Sehingga Model 2 tidak cukup memadai tanpa tambahan variabel lag dari SO2.
+
+### Uji Autokorelasi Residual
+
+```{r}
+dwtest(cons_lm1)
+dwtest(cons_lm2)
+dwtest(cons_lm3)
+dwtest(cons_lm4)
+```
+
+Uji Durbin-Watson menunjukan keempat model memiliki nilai $p-value\leq0.05$. Artinya, asusmi sisaan saling bebas tidak terpenuhi pada setiap model.
+
+### Uji Heterogenitas
+
+```{r}
+bptest(cons_lm1)
+bptest(cons_lm2)
+bptest(cons_lm3)
+bptest(cons_lm4)
+```
+
+Dari hasil uji Breusch-Pagan diatas, seluruh model memiliki nilai $p-value>0.05$ sehingga dinyatakan asumsi ragam sisaan homogen terpenuhi.
+
+### Uji Normalitas
+
+```{r}
+shapiro.test(residuals(cons_lm1))
+shapiro.test(residuals(cons_lm2))
+shapiro.test(residuals(cons_lm3))
+shapiro.test(residuals(cons_lm4))
+```
+
+Dari hasil uji Shapiro-Wilk diatas, seluruh model memiliki nilai $p-value>0.05$ sehingga dinyatakan asumsi normalitas terpenuhi.
+
+# Perbandingan Model
+
+```{r}
+akurasi <- matrix(c(mape.koyck, mape.dlm, mape.dlm2, mape.ardl))
+row.names(akurasi)<- c("Koyck","DLM 1","DLM 2","Autoregressive")
+colnames(akurasi) <- c("MAPE")
+akurasi
+```
+Model DLM adalah model paling optimum, karena memiliki nilai MAPE terkecil.
+
+## Plot
+
+Untuk membandingkan hasil peramalan dari berbagai model (Koyck, DLM 1, DLM 2, dan ARDL) dengan data aktual, dibuat grafik garis. Visualisasi ini membantu melihat seberapa dekat hasil ramalan tiap model dengan nilai aktual.
+
+```{r}
+par(mfrow=c(1,1))
+
+plot(test$so2, test$AQI, type="b", col="black", ylim=c(15,80))
+
+points(test$so2, fore.koyck$forecasts, col="red");   lines(test$so2, fore.koyck$forecasts, col="red")
+points(test$so2, fore.dlm$forecasts, col="blue");    lines(test$so2, fore.dlm$forecasts, col="blue")
+points(test$so2, fore.dlm2$forecasts, col="orange"); lines(test$so2, fore.dlm2$forecasts, col="orange")
+points(test$so2, fore.ardl$forecasts, col="green");  lines(test$so2, fore.ardl$forecasts, col="green")
+
+legend("topleft",
+       c("Aktual", "Koyck","DLM 1","DLM 2", "Autoregressive"),
+       lty=1, col=c("black","red","blue","orange","green"), cex=0.8)
+```
+
+Berdasarkan plot perbandingan, model DLM 2 sangat berbeda dibandingkan dengan model aktual. sementara model Koyck, DLM 1, dan Autoregresive hampir konstan pada satu nilai. Kesimpulannya, tidak ada model yang memiliki tren yang sama dengan nilai aktual. Namun, model Koyck, DLM 1, dan Autoregresive cukup baik dalam mendekati nilai aktual. Sedangkan DLM 2 cenderung overestimate dan tidak cocok untuk data tersebut.
