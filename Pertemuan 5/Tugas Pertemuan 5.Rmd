@@ -1,0 +1,189 @@
+---
+title: "Tugas Pertemuan 5"
+author: "Fathoni Sabri"
+date: "2025-10-02"
+output: html_document
+---
+
+# Library
+```{r}
+library(ggplot2)
+library(tsibble)
+library(tseries)
+library(MASS)
+library(dplyr)
+```
+# Input Data
+```{r}
+data<-read.csv("C:/Users/Fathoni Sabri/Downloads/data_fathoni.csv")
+head(data)
+str(data)
+```
+## Data Formating
+
+### Mengubah Format Tanggal 
+```{r}
+data$Date <- as.Date(data$Date, format = "%m/%d/%Y")
+head(data)
+```
+
+### Memilih Kolom
+```{r}
+data <- data %>%
+  select(Date, Close)
+head(data)
+```
+
+## Splitting Data
+Data dibagi menjadi 80% dan 20%
+```{r}
+# hitung jumlah data
+n <- nrow(data)
+n_train <- floor(0.8 * n)
+
+# bagi data
+training <- data[1:n_train, ]
+testing  <- data[(n_train+1):n, ]
+
+# ubah ke time series
+train <- ts(training$Close)
+test  <- ts(testing$Close)
+```
+
+```{r}
+length(train)
+```
+# Eksplorasi Data
+```{r}
+mean <- mean(data$Close)
+mean
+```
+## Plot Data Penuh
+```{r}
+dt <- ts(data$Close)
+
+plot <- dt |> as_tsibble() |> 
+  ggplot(aes(x = index, y = value)) + geom_line() + theme_bw() +
+  geom_hline(yintercept = mean, color = "red", linetype = "dashed") +
+  xlab("Periode") + ylab("Harga Close")
+plot
+```
+
+## Plot Data Latih 
+```{r}
+dt <- ts(training$Close)
+
+plot <- dt |> as_tsibble() |> 
+  ggplot(aes(x = index, y = value)) + geom_line() + theme_bw() +
+  geom_hline(yintercept = mean, color = "red", linetype = "dashed") +
+  xlab("Periode") + ylab("Harga Close")
+plot
+```
+
+## Plot Data Uji
+```{r}
+dt <- ts(testing$Close)
+
+plot <- dt |> as_tsibble() |> 
+  ggplot(aes(x = index, y = value)) + geom_line() + theme_bw() +
+  geom_hline(yintercept = mean, color = "red", linetype = "dashed") +
+  xlab("Periode") + ylab("Harga Close")
+plot
+```
+
+# Pemeriksaan Kestasioneran Data
+
+## Plot ACF
+```{r}
+acf(data$Close)
+```
+
+Terlihat bahwa data turun perlahan (tails off), ini mengindikasikan data tidak stasioner dalam rataan.
+
+## Uji ADF
+```{r}
+tseries::adf.test(data$Close)
+
+```
+P-Value gagal menolak H0, artinya data tidak menyebar stasioner dalam rataan. Hal ini sesuai dengan plot ACF sebelumnya.
+
+## Kestasioneran Dalam Ragam
+```{r}
+index<-seq(1:88)
+
+bc <- boxcox(
+  train ~ index,
+  lambda = seq(-4.0, 4.0, by = 0.001)
+)
+```
+
+
+```{r}
+lambda <- bc$x[which.max(bc$y)]
+lambda
+```
+```{r}
+ci_lambda <- bc$x[bc$y > max(bc$y) - 0.5 * qchisq(0.95, 1)]
+
+ci_lower <- min(ci_lambda)
+ci_upper <- max(ci_lambda)
+
+c(Batas_Bawah = ci_lower, Batas_Atas = ci_upper)
+```
+Hasil analisis Box-Cox menunjukkan bahwa nilai λ=1 berada pada selang kepercayaan 0.768 hingga 1.752. Ini menunjukkan bahwa data menyebar stasioner terhadap varians.
+
+# Penanganan Ketidakstasioneran
+
+## Differencing 
+```{r}
+differencing1 <- diff(training$Close, differences = 1)
+
+ts.plot(differencing1,
+        main = "Differencing Pertama",
+        col = "blue", lwd = 2)
+```
+```{r}
+length(differencing1)
+```
+## Plot ACF Setelah Differencing
+```{r}
+acf(differencing1)
+```
+
+Terjadi perubahan, di mana plot ACF pada data yang tadinya tails off berubah menjadi cut off. Namun, untuk memastikan bahwa ketidakstasioneran pada data masih ada atau tidak. perlu dilakukan uji ADF. Selain itu, data cut of pada $Lag 1$.
+
+## Uji ADF Setelah Differencing
+
+```{r}
+adf.test(differencing1)
+```
+Uji ADF menghasilkan $P-value$ 0.01 yang lebih kecil dari nilai signifikannya. Sehingga, cukup bukti untuk mengatakan data telah stasioner dalam rataan.
+
+## Ketidakstasioneran Dalam Varians Setelah Differencing
+```{r}
+length(differencing1)
+```
+
+```{r}
+index2 <- seq(1:87)
+
+bc2 <- boxcox(
+  differencing1 - min(differencing1) + 1 ~ index2,
+  lambda = seq(0, 5, by = 0.001)
+)
+```
+
+```{r}
+lambda <- bc2$x[which.max(bc2$y)]
+lambda
+```
+
+```{r}
+ci_lambda <- bc2$x[bc2$y > max(bc2$y) - 0.5 * qchisq(0.95, 1)]
+
+ci_lower <- min(ci_lambda)
+ci_upper <- max(ci_lambda)
+
+c(Batas_Bawah = ci_lower, Batas_Atas = ci_upper)
+```
+Hasil analisis Box-Cox menunjukkan bahwa nilai λ=1 berada pada selang kepercayaan 0.908 hingga 1.664. Ini menunjukkan bahwa setelah dilakukan differencing, data tetap menyebar stasioner terhadap varians.
