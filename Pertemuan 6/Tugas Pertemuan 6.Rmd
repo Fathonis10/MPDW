@@ -1,0 +1,398 @@
+---
+title: "Tugas Pertemuan 5"
+author: "Fathoni Sabri"
+date: "2025-10-02"
+output: html_document
+---
+
+# Library
+```{r}
+library(ggplot2)
+library(tsibble)
+library(tseries)
+library(MASS)
+library(dplyr)
+library(TSA)
+library(forecast)
+```
+# Input Data
+```{r}
+data<-read.csv("C:/Users/Fathoni Sabri/Downloads/data_fathoni.csv")
+head(data)
+str(data)
+```
+## Data Formating
+
+### Mengubah Format Tanggal 
+```{r}
+data$Date <- as.Date(data$Date, format = "%m/%d/%Y")
+head(data)
+```
+
+### Memilih Kolom
+```{r}
+data <- data %>%
+  select(Date, Close)
+head(data)
+```
+
+## Splitting Data
+Data dibagi menjadi 80% dan 20%
+
+
+```{r}
+# hitung jumlah data
+n <- nrow(data)
+n_train <- floor(0.8 * n)
+
+# bagi data
+training <- data[1:n_train, ]
+testing  <- data[(n_train+1):n, ]
+
+# ubah ke time series
+train <- ts(training$Close)
+test  <- ts(testing$Close)
+```
+
+```{r}
+length(train)
+```
+# Eksplorasi Data
+```{r}
+mean <- mean(data$Close)
+mean
+```
+## Plot Data Penuh
+```{r}
+dt <- ts(data$Close)
+
+plot <- dt |> as_tsibble() |> 
+  ggplot(aes(x = index, y = value)) + geom_line() + theme_bw() +
+  geom_hline(yintercept = mean, color = "red", linetype = "dashed") +
+  xlab("Periode") + ylab("Harga Close")
+plot
+```
+
+## Plot Data Latih 
+```{r}
+dt.train <- ts(training$Close)
+
+plot <- dt.train |> as_tsibble() |> 
+  ggplot(aes(x = index, y = value)) + geom_line() + theme_bw() +
+  geom_hline(yintercept = mean, color = "red", linetype = "dashed") +
+  xlab("Periode") + ylab("Harga Close")
+plot
+```
+
+## Plot Data Uji
+```{r}
+dt.test <- ts(testing$Close)
+
+plot <- dt.test |> as_tsibble() |> 
+  ggplot(aes(x = index, y = value)) + geom_line() + theme_bw() +
+  geom_hline(yintercept = mean, color = "red", linetype = "dashed") +
+  xlab("Periode") + ylab("Harga Close")
+plot
+```
+
+# Pemeriksaan Kestasioneran Data
+
+## Plot ACF
+```{r}
+acf(dt.train)
+```
+
+Terlihat bahwa data turun perlahan (tails off), ini mengindikasikan data tidak stasioner dalam rataan.
+
+## Uji ADF
+```{r}
+tseries::adf.test(dt.train)
+
+```
+P-Value gagal menolak H0, artinya data tidak menyebar stasioner dalam rataan. Hal ini sesuai dengan plot ACF sebelumnya.
+
+## Kestasioneran Dalam Ragam
+```{r}
+index<-seq(1:88)
+
+bc <- boxcox(
+  dt.train ~ index,
+  lambda = seq(-4.0, 4.0, by = 0.001)
+)
+```
+
+
+```{r}
+lambda <- bc$x[which.max(bc$y)]
+lambda
+```
+```{r}
+ci_lambda <- bc$x[bc$y > max(bc$y) - 0.5 * qchisq(0.95, 1)]
+
+ci_lower <- min(ci_lambda)
+ci_upper <- max(ci_lambda)
+
+c(Batas_Bawah = ci_lower, Batas_Atas = ci_upper)
+```
+Hasil analisis Box-Cox menunjukkan bahwa nilai λ=1 berada pada selang kepercayaan 0.768 hingga 1.752. Ini menunjukkan bahwa data menyebar stasioner terhadap varians.
+
+# Penanganan Ketidakstasioneran
+
+## Differencing 
+```{r}
+differencing1 <- diff(dt.train, differences = 1)
+
+ts.plot(differencing1,
+        main = "Differencing Pertama",
+        col = "blue", lwd = 2)
+```
+```{r}
+length(differencing1)
+```
+## Plot ACF Setelah Differencing
+```{r}
+acf(differencing1)
+```
+
+Terjadi perubahan, di mana plot ACF pada data yang tadinya tails off berubah menjadi cut off. Namun, untuk memastikan bahwa ketidakstasioneran pada data masih ada atau tidak. perlu dilakukan uji ADF. Selain itu, data cut of pada $Lag 0$.
+
+## Uji ADF Setelah Differencing
+
+```{r}
+adf.test(differencing1)
+```
+Uji ADF menghasilkan $P-value$ 0.01 yang lebih kecil dari nilai signifikannya. Sehingga, cukup bukti untuk mengatakan data telah stasioner dalam rataan.
+
+## Ketidakstasioneran Dalam Varians Setelah Differencing
+```{r}
+length(differencing1)
+```
+
+```{r}
+index2 <- seq(1:87)
+
+bc2 <- boxcox(
+  differencing1 - min(differencing1) + 1 ~ index2,
+  lambda = seq(0, 5, by = 0.001)
+)
+```
+
+```{r}
+lambda <- bc2$x[which.max(bc2$y)]
+lambda
+```
+
+
+```{r}
+ci_lambda <- bc2$x[bc2$y > max(bc2$y) - 0.5 * qchisq(0.95, 1)]
+
+ci_lower <- min(ci_lambda)
+ci_upper <- max(ci_lambda)
+
+c(Batas_Bawah = ci_lower, Batas_Atas = ci_upper)
+```
+Hasil analisis Box-Cox menunjukkan bahwa nilai λ=1 berada pada selang kepercayaan 0.908 hingga 1.664. Ini menunjukkan bahwa setelah dilakukan differencing, data tetap menyebar stasioner terhadap varians.
+
+# Identifikasi Model
+## 6.1 Plot ACF untuk MA(q)
+```{r}
+acf(differencing1)
+```
+
+Berdasarkan plot tersebut, terlihat bahwa plot ACF cenderung cuts off pada lag ke 0.
+
+## 6.2 Plot PACF untuk AR(p=) 
+```{r}
+pacf(differencing1)
+```
+
+Berdasarkan plot tersebut, terlihat bahwa plot ACF cenderung cuts off pada lag ke 0.
+
+```{r}
+eacf(differencing1)
+```
+
+maka model tentatifnya adalah ARIMA(0,1,0). Sebagai perbandingan, kita juga akan melihat hasil dari model ARIMA(1,1,1).
+
+# Pendugaan Parameter Model Tentatif
+
+###  ARIMA(0,1,0)
+
+```{r}
+model1 = Arima(differencing1, order=c(0,1,0), method="ML", include.drift = TRUE)
+summary(model1)
+```
+```{r}
+lmtest::coeftest(model1)
+```
+Drift tidak signifikan, artinya data Data sudah stasioner dan tidak punya tren deterministik.
+
+### ARIMA(1,1,1)
+
+```{r}
+model2 = Arima(differencing1, order=c(1,1,1), method="ML")
+summary(model2)
+```
+```{r}
+lmtest::coeftest(model2)
+```
+Pada Model ARIMA(1,1,1) hanya 1 parameter saja yang signifikan. 
+
+## Ringkasan AIC
+
+```{r}
+model_tentatif <- data.frame(
+  Model = c("ARIMA(0,1,0)","ARIMA(1,1,1)"),
+  AIC   = c(AIC(model1),AIC(model2)),
+  BIC   = c(BIC(model1),BIC(model2))
+)
+
+model_tentatif
+```
+
+Berdasarkan Nilai AIC terkecil, Model ARIMA (1,1,1) dipilih sebagai model. 
+
+# Analisis Sisaan
+
+## Eksplorasi Sisaan
+```{r}
+  sisaan <- model2$residuals
+  
+  par(mfrow = c(2,2),    
+      mar = c(4,4,2,1),  
+      oma = c(0,0,2,0))  
+  
+  # Q-Q Plot
+  qqnorm(sisaan, main = "Normal Q-Q Plot")
+  qqline(sisaan, col = "blue", lwd = 2)
+  
+  # Plot Sisaan vs Waktu
+  plot(sisaan, type = "p",
+       main = "Plot Sisaan vs Waktu",
+       xlab = "Waktu", ylab = "Sisaan")
+  
+  # ACF
+  acf(sisaan, main = "ACF Sisaan")
+  
+  # PACF
+  pacf(sisaan, main = "PACF Sisaan")
+```
+
+Berdasarkan plot diagnostik residual (Q-Q plot, ACF, PACF, dan plot sisaan terhadap waktu), residual model ARIMA(1,1,1) berdistribusi normal dan tidak menunjukkan autokorelasi yang signifikan. Hal ini menunjukkan bahwa model telah sesuai dengan data dan memenuhi asumsi klasik model ARIMA, sehingga layak digunakan untuk peramalan.
+
+## Uji Formal
+```{r}
+ks.test(sisaan,"pnorm")
+```
+Berdasarkan uji KS tersebut, didapat p-value sebesar $0.0000$ yang kurang dari taraf nyata 5% sehingga tolak $H_0$ dan menandakan bahwa sisaan tidak menyebar normal. Hal ini sesuai dengan hasil eksplorasi menggunakan plot kuantil-kuantil normal.
+
+```{r}
+Box.test(sisaan, type = "Ljung")
+```
+Berdasarkan uji Ljung-Box tersebut, didapat p-value sebesar $0.7699$ yang lebih besar dari taraf nyata 5% sehingga gagal tolak $H_0$ dan menandakan bahwa sisaan saling bebas. Hal ini sesuai dengan hasil eksplorasi.
+
+```{r}
+Box.test((sisaan)^2, type = "Ljung")
+```
+Berdasarkan uji Ljung-Box terhadap sisaan kuadrat tersebut, didapat p-value sebesar $0.05632$ yang lebih besar dari taraf nyata 5% sehingga tak tolak $H_0$ dan menandakan bahwa tak cukup bukti untuk mengatakan ragam sisaan tidak homogen.
+
+```{r}
+t.test(sisaan, mu = 0, conf.level = 0.95)
+```
+Berdasarkan uji t satu sampel terhadap sisaan model ARIMA(1,1,1), diperoleh nilai p = 0.1959 (> 0.05) sehingga gagal menolak hipotesis nol. Hal ini menunjukkan bahwa rata-rata sisaan tidak berbeda signifikan dari nol. Dengan demikian, model tidak mengandung bias sistematis dalam prediksi, dan asumsi nilai tengah sisaan = 0 telah terpenuhi. Hal ini sesuai dengan eksplorasi yang telah dilakukan. 
+
+# Overfitting
+
+Tahapan selanjutnya adalah overfitting dilakukan dengan menaikkan orde AR(p) dan MA(q) dari model ARIMA(1,1,1) Kandidat model overfitting adalah ARIMA(2,1,1) dan ARIMA(1,1,2).
+
+# ARIMA (2,1,1)
+
+```{r}
+model3 = Arima(differencing1, order=c(2,1,1), method="ML")
+summary(model3)
+```
+```{r}
+lmtest::coeftest(model3)
+```
+
+pada ARIMA(2,1,1) dengan menaikkan satu ordo AR ternyata tidak lebih baik dari Model ARIMA(1,1,1). Karena nilai AIC dari Model ARIMA(2,1,1) lebih besar serta ada dua parameter yang tidak siginifikan, yaitu ar1 dan ar2.
+
+## ARIMA(1,1,2)
+
+```{r}
+model4 = Arima(differencing1, order=c(1,1,2), method="ML")
+summary(model4)
+```
+```{r}
+lmtest::coeftest(model4)
+```
+
+Muncul peringatan "NaNs produced". 
+
+```{r}
+model5<-forecast::Arima(differencing1, order=c(1,1,2))
+```
+
+```{r}
+lmtest::coeftest(model5)
+```
+ARIMA(1,1,2) dengan menaikkan satu ordo MA ternyata masih tidak lebih baik dari Model ARIMA(1,1,1). Karena nilai AIC dari Model ARIMA(1,1,2) lebih besar serta tidak ada parameter yang signifikan pada alpha 5%.
+
+Karena model hasil overfitting hasilnya tidak lebih baik daripada Model ARIMA(1,1,1), maka model terbaik yang dipilih adalah ARIMA(1,1,1) dilanjutkan dengan peramalan.
+
+# Model Terbaik: ARIMA(1,1,1)
+
+```{r}
+model2 = Arima(differencing1, order=c(1,1,1), method="ML")
+summary(model2)
+```
+```{r}
+lmtest::coeftest(model2)
+```
+
+<br> Nilai AIC: $1256.32$
+<br> Nilai AICc: $1256.61$
+<br> Nilai BIC: $1263.68$
+<br> Parameter ma1 signifikan pada taraf nyata 5%
+
+# Peramalan
+
+```{r}
+ramalan <- forecast::forecast(model2, h = length(dt.test))
+
+data.ramalan <- ramalan$mean
+plot(ramalan)
+```
+```{r}
+# Inverse differencing
+pt_akhir_train <- tail(dt.test, 1)
+
+forecast <- diffinv(data.ramalan, differences = 1, xi = pt_akhir_train)
+hasil <- forecast[-c(0,1)]
+hasil <- forecast[1:length(dt.test)]
+
+# Bandingkan aktual vs forecast
+perbandingan <- cbind(
+  Aktual   = dt.test,
+  Forecast = hasil
+)
+
+print(head(perbandingan, 10))   
+```
+```{r}
+akurasi_test <- accuracy(hasil, dt.test)
+akurasi_test
+```
+
+```{r}
+ts.plot(dt, col = "black", lty = 1,
+        xlab = "Waktu", ylab = "Harga Saham")
+
+lines(88:(87+length(hasil)), hasil, col = "blue", lty = 2, lwd = 2)
+legend("topleft", 
+       legend = c("Data Aktual", "Forecast"),
+       col = c("black", "blue"),
+       lty = c(1,2,3), lwd = c(1,1,1), bty = "n")
+```
+
+Berdasarkan hasil peramalan, dapat dilihat bahwa nilai MAPE yang didapatkan sebesar 11,31% yang sebenarnya masih cukup baik untuk model tersebut, tetapi dikarenakan nilai ACF1 dan Theil's U yang besar menunjukkan model belum menangkap pola autokorelasi residual dengan baik. Peramalan ini hanya cocok untuk jangka pendek.
