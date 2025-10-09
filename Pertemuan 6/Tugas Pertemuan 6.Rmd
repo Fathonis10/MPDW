@@ -1,5 +1,5 @@
 ---
-title: "Tugas Pertemuan 5"
+title: "Tugas Pertemuan 6"
 author: "Fathoni Sabri"
 date: "2025-10-02"
 output: html_document
